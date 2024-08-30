@@ -28,17 +28,31 @@ import Shell from 'gi://Shell';
 import Clutter from 'gi://Clutter';
 import Meta from 'gi://Meta';
 
-import {Extension, gettext as _} from 'resource:///org/gnome/shell/extensions/extension.js';
+import { Extension, gettext as _ } from 'resource:///org/gnome/shell/extensions/extension.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
+import * as QuickSettings from 'resource:///org/gnome/shell/ui/quickSettings.js';
 
 let sourceId = null;
 
 const EEPSIndicator = GObject.registerClass(
-    class EEPSIndicator extends PanelMenu.Button {
+    class EEPSIndicator extends QuickSettings.SystemIndicator {
         _init(settings, path) {
             super._init(0.5, _('EasyEffects Preset Selector'));
+        }
+    });
+
+const EEPSToggle = GObject.registerClass(
+    class EEPSToggle extends QuickSettings.QuickMenuToggle {
+        _init(extensionObject, path, settings, icon) {
+            super._init({
+                title: _('EasyEffects'),
+                subtitle: _('Example Subtitle'),
+                gicon: icon,
+                toggleMode: true,
+                menuEnabled: true,
+            });
 
             this.categoryNames = [' ', ' '];
             this.outputPresets = [' '];
@@ -47,33 +61,12 @@ const EEPSIndicator = GObject.registerClass(
             this.lastUsedOutputPreset = ' ';
             this.lastPresetLoadTime = 0;
             this.enableBypass = false;
-            this.command = [];
             this.settings = settings;
             this.appDesktopFile = 'com.github.wwmm.easyeffects.desktop';
             this.easyEffectsApp = Shell.AppSystem.get_default().lookup_app(this.appDesktopFile);
 
-            Main.wm.addKeybinding(
-                'cycle-output-presets',
-                this.settings,
-                Meta.KeyBindingFlags.IGNORE_AUTOREPEAT,
-                Shell.ActionMode.NORMAL | Shell.ActionMode.OVERVIEW | Shell.ActionMode.POPUP,
-                () => this._loadNext('output'));
-            Main.wm.addKeybinding(
-                'cycle-input-presets',
-                this.settings,
-                Meta.KeyBindingFlags.IGNORE_AUTOREPEAT,
-                Shell.ActionMode.NORMAL | Shell.ActionMode.OVERVIEW | Shell.ActionMode.POPUP,
-                () => this._loadNext('input'));
-
-            this._icon = new St.Icon({style_class: 'system-status-icon'});
-            this._icon.gicon = Gio.icon_new_for_string(
-                `${path}/icons/eepresetselector-symbolic.svg`
-            );
-            this.add_child(this._icon);
-            this.connect('button-press-event', () => {
-                this._refreshMenu();
-            });
             this._refreshMenu();
+            this.connect('clicked', () => this._enableGlobalBypass(!this.enableBypass));
         }
 
         _loadNext(presetType) {
@@ -204,15 +197,6 @@ const EEPSIndicator = GObject.registerClass(
             let _separatorItem = new PopupMenu.PopupSeparatorMenuItem();
             this.menu.addMenuItem(_separatorItem);
 
-            // Add switch menu item to toggle global bypass
-            const toggleBypassItem = new PopupMenu.PopupSwitchMenuItem(_('Global Bypass'), this.enableBypass, {});
-            toggleBypassItem.setOrnament(PopupMenu.Ornament.NONE);
-            toggleBypassItem.add_style_class_name('bypass-toggle-item');
-            toggleBypassItem.connect('toggled', (item, state) => {
-                this._enableGlobalBypass(state);
-            });
-            this.menu.addMenuItem(toggleBypassItem);
-
             // Add a menu item to activate (open) the Easy Effects application
             let _easyEffectsActivatorItem = new PopupMenu.PopupMenuItem(
                 _('Launch %s').format(this.easyEffectsApp.get_name())
@@ -232,7 +216,6 @@ const EEPSIndicator = GObject.registerClass(
             let [, _outputNaturH] = _outputSection.actor.get_preferred_height(-1);
             let [, _inputNaturH] = _inputSection.actor.get_preferred_height(-1);
             let [, _sepNaturH] = _separatorItem.actor.get_preferred_height(-1);
-            let [, _toggleBypassNaturH] = toggleBypassItem.actor.get_preferred_height(-1);
             let [, _eeActNaturH] = _easyEffectsActivatorItem.actor.get_preferred_height(-1);
 
             let _notFillsScreen = _maxHeight >= 0 && _inputNaturH + _outputNaturH + 2 * _titleNaturH <= _maxHeight - _eeActNaturH - _sepNaturH - _toggleBypassNaturH;
@@ -252,6 +235,7 @@ const EEPSIndicator = GObject.registerClass(
             // Learn if EasyEffects is installed as a Flatpak
             let appSystem = Shell.AppSystem.get_default();
             this.easyEffectsApp = appSystem.lookup_app(this.appDesktopFile);
+
 
             if (!this.easyEffectsApp) {
                 this.menu._getMenuItems().forEach(item => {
@@ -276,6 +260,8 @@ const EEPSIndicator = GObject.registerClass(
 
                 // Build menu with last values
                 this._buildMenu(this.categoryNames[0], this.categoryNames[1], this.command);
+
+                console.log('EASYEFFECTS BUILT THE MENU -  PRESENT ON THIS SYSTEM BITCH');
 
                 // Get global bypass
                 try {
@@ -369,7 +355,7 @@ const EEPSIndicator = GObject.registerClass(
                                 .split(',');
                             if (
                                 this.outputPresets[
-                                    this.outputPresets.length - 1
+                                this.outputPresets.length - 1
                                 ] === ''
                             )
                                 this.outputPresets.pop();
@@ -379,7 +365,7 @@ const EEPSIndicator = GObject.registerClass(
                                 .split(',');
                             if (
                                 this.inputPresets[
-                                    this.inputPresets.length - 1
+                                this.inputPresets.length - 1
                                 ] === ''
                             )
                                 this.inputPresets.pop();
@@ -556,9 +542,13 @@ const EEPSIndicator = GObject.registerClass(
 
 export default class EEPSExtension extends Extension {
     enable() {
+        let gicon = Gio.icon_new_for_string(
+            `${this.path}/icons/eepresetselector-symbolic.svg`
+        );
         this._settings = this.getSettings();
         this._indicator = new EEPSIndicator(this._settings, this.path);
-        Main.panel.addToStatusArea(this.uuid, this._indicator);
+        this._indicator.quickSettingsItems.push(new EEPSToggle(this, this.path, this._settings, gicon));
+        Main.panel.statusArea.quickSettings.addExternalIndicator(this._indicator);
     }
 
     disable() {
@@ -568,8 +558,10 @@ export default class EEPSExtension extends Extension {
         }
         Main.wm.removeKeybinding('cycle-output-presets');
         Main.wm.removeKeybinding('cycle-input-presets');
+        this._indicator.quickSettingsItems.forEach(item => item.destroy());
         this._indicator.destroy();
         this._indicator = null;
         this._settings = null;
     }
 }
+
